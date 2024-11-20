@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电量数据</title>
+    <script src="https://lf9-cdn-tos.bytecdntp.com/cdn/expire-1-M/echarts/5.3.0/echarts.common.min.js"></script>
+    <script src="./data.js"></script>
+    <style>
+        body {
+            background: #fff;
+            color: #222;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: #222;
+                color: #ddd;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="chart" style="width: 100%; height: 600px;"></div>
+    <div>
+        <p id="lastValue" style="text-align: center;"></p>
+    </div>
+    <div>
+        <p id="rapidDropWarning" style="text-align: center; color: red;"></p>
+        <p id="lowPowerWarning" style="text-align: center; color: orange;"></p>
+    </div>
+
+    <script>
+        function interpolateData(data) {
+            data = data.map(item => [...item]);
+            for (let i = 0; i < data.length; i++) {
+                if (data[i][1] === -1) {
+                    let prev = i - 1, next = i + 1;
+                    while (prev >= 0 && data[prev][1] === -1) prev--;
+                    while (next < data.length && data[next][1] === -1) next++;
+
+                    if (prev < 0 && next >= data.length) {
+                        data[i][1] = 0;
+                    } else if (prev < 0) {
+                        data[i][1] = data[next][1];
+                    } else if (next >= data.length) {
+                        data[i][1] = data[prev][1];
+                    } else {
+                        let slope = (data[next][1] - data[prev][1]) / (data[next][0] - data[prev][0]);
+                        data[i][1] = data[prev][1] + slope * (data[i][0] - data[prev][0]);
+                    }
+                }
+            }
+            return data;
+        }
+
+        function formatTimestamp(timestamp) {
+            let date = new Date(timestamp);
+
+            let year = date.getFullYear();
+            let month = String(date.getMonth() + 1).padStart(2, '0');
+            let day = String(date.getDate()).padStart(2, '0');
+            let hours = String(date.getHours()).padStart(2, '0');
+            let minutes = String(date.getMinutes()).padStart(2, '0');
+
+            return `${year}-${month}-${day} ${hours}:${minutes}`;
+        }
+
+        let processedData = interpolateData(degreeData);
+
+        let timestamps = processedData.map(item => item[0] * 1000);
+        let values = processedData.map(item => item[1]);
+
+        let chart = echarts.init(document.getElementById('chart'));
+
+        let startTimestamp = timestamps[timestamps.length - 1] - 1000 * 60 * 60 * 24 * 7;
+        let startIndex = timestamps.findIndex(t => t >= startTimestamp);
+        if (startIndex === -1) {
+            startIndex = 0;
+        } else if (timestamps.length >= 2 && startIndex === timestamps.length - 1) {
+            startIndex--;
+        }
+        let sliderStart = Math.floor((timestamps[startIndex] - timestamps[0]) / (timestamps[timestamps.length - 1] - timestamps[0]) * 100);
+
+        let option = {
+            title: {
+                text: '电量数据',
+                left: 'center'
+            },
+            tooltip: {
+                trigger: 'axis',
+                formatter: params =>
+                    `${formatTimestamp(params[0].axisValue)}<br/><div><span>剩余电量</span><span style="float:right;"><strong>${params[0].data[1].toFixed(1)}</strong></span></div>`
+            },
+            xAxis: {
+                type: 'value',
+                axisLabel: {
+                    show: false,
+                    formatter: value => formatTimestamp(value)
+                },
+                name: '时间',
+                splitLine: {
+                    show: false
+                },
+                boundaryGap: false,
+                min: timestamps[0],
+                max: timestamps[timestamps.length - 1]
+            },
+            yAxis: {
+                type: 'value',
+                min: 0,
+                name: '电量 (度)'
+            },
+            dataZoom: [
+                {
+                    type: 'slider',
+                    start: sliderStart,
+                    end: 100,
+                    labelFormatter: value => formatTimestamp(Math.floor(value))
+                }
+            ],
+            series: [{
+                name: '剩余电量',
+                type: 'line',
+                data: timestamps.map((t, i) => [t, values[i]]),
+                showSymbol: false,
+                lineStyle: {
+                    width: 2
+                }
+            }]
+        };
+
+        chart.setOption(option);
+
+        window.addEventListener('resize', () => chart.resize());
+    </script>
+    <script>
+        let lastIndex = degreeData.length - 1;
+        while (lastIndex >= 0 && degreeData[lastIndex][1] === -1) lastIndex--;
+        let lastValue;
+        if (lastIndex >= 0) {
+            lastValue = degreeData[lastIndex][1]
+        }
+        let message = lastIndex >= 0 ? `最后一次有效数据<br><strong>${degreeData[lastIndex][1].toFixed(1)} 度</strong><br>(${formatTimestamp(timestamps[lastIndex])})` : '无有效数据';
+        document.getElementById('lastValue').innerHTML = message;
+    </script>
+    <script>
+        let lowPowerWarning = '';
+        if (lastValue) {
+            if (lastValue <= 5) {
+                lowPowerWarning = '<strong>电量低于 5 度</strong>';
+            } else if (lastValue <= 10) {
+                lowPowerWarning = '<strong>电量低于 10 度</strong>';
+            } else if (lastValue <= 20) {
+                lowPowerWarning = '<strong>电量低于 20 度</strong>';
+            }
+        }
+        document.getElementById('lowPowerWarning').innerHTML = lowPowerWarning;
+
+        let rapidDropWarning = '';
+        if (values.length >= 2) {
+            let dropThreshold = 1.5 * (timestamps[values.length - 1] - timestamps[values.length - 2]) / 1000 / 60 / 60;
+            console.log(dropThreshold);
+            if ((values[values.length - 2] - values[values.length - 1]) >= dropThreshold) {
+                rapidDropWarning = '<strong>电量下降过快</strong>';
+            }
+        }
+        document.getElementById('rapidDropWarning').innerHTML = rapidDropWarning;
+    </script>
+</body>
+
+</html>
