@@ -4,7 +4,7 @@ import os
 import time
 
 
-PUSH_PLUS_TOKEN = os.environ.get("URL", "").strip()
+URL = os.environ.get("URL", "").strip()
 PUSH_PLUS_TOKEN = os.environ.get("PUSH_PLUS_TOKEN", "").strip()
 
 
