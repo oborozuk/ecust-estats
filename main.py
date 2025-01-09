@@ -8,15 +8,19 @@ URL = os.environ.get("URL", "").strip()
 PUSH_PLUS_TOKEN = os.environ.get("PUSH_PLUS_TOKEN", "").strip()
 
 
-def get_degree(url):
+def get_degree(url, retry=3):
     header = {
         "User-Agent": "Mozilla/5.0 (Linux; Android 15; OPPO A5) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Mobile Safari/537.36 MicroMessenger/9.0",
     }
-    response = requests.get(url, headers=header)
     try:
+        response = requests.get(url, headers=header)
         return float(re.findall(r"(\d+(\.\d+)?)度", response.text)[0][0])
-    except:
-        print("Failed to get data.")
+    except Exception as e:
+        if retry > 0:
+            time.sleep(1)
+            return get_degree(url, retry - 1)
+        else:
+            print(f"Failed to get data. {e}")
         return -1
 
 
@@ -59,11 +63,14 @@ def send_warning(degree):
 
 
 if __name__ == "__main__":
+    if not URL:
+        print("Please set the URL environment variable.")
+        exit(1)
     try:
         timestamp = int(time.time())
         degree = get_degree(URL)
         append_to_data_js(timestamp, degree)
-        print("Data appended.")
+        print(f"Data appended. ({timestamp}, {degree})")
         if 0 <= degree <= 10:
             send_warning(degree)
     except Exception as e:
